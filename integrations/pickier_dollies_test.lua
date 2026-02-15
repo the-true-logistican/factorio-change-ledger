@@ -1,7 +1,17 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
 -- Test-Skript für Pickier Dollies Integration
 -- Dieses Skript kann verwendet werden, um die Integration zu testen
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
 
 local PickierDollies = require("integrations.pickier_dollies")
+
+PickierDollies.version = "0.2.0"
+
 
 -- Test 1: Verfügbarkeitsprüfung
 local function test_availability()

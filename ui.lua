@@ -1,8 +1,20 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
+-- All GUI creation and interaction logic (buffer, transactions, export, reset, blueprint views).
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
+
 local M = require("config")
 local Change = require("change")
 local mod_gui = require("mod-gui")
 
 local UI = {}
+
+UI.version = "0.8.4"
+
 
 -- Read current Change Viewer checkbox states.
 -- Defaults to true if the GUI (or element) is missing.

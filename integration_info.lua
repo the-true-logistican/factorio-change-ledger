@@ -1,7 +1,15 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
 -- Integration Info Module
 -- Provides information about all available integrations and tracked actions
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
 
 local IntegrationInfo = {}
+IntegrationInfo.version = "0.2.0"
 
 -- Get information about all loaded integrations
 function IntegrationInfo.get_all_integrations()

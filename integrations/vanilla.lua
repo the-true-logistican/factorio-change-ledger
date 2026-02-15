@@ -1,8 +1,20 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
+-- Integration for Vanilla mod
+-- Logs entity movenement, (de)construction for standard vanilla
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
+
 local M = require("config")
 local Change = require("change")
 local CircuitHelper = require("integrations.circuit_helper")
 
 local Vanilla = {}
+
+Vanilla.version = "0.2.0"
 
 function Vanilla.is_available()
   return true
@@ -151,13 +163,12 @@ end
   end)
 
   -- Remove / mined / destroyed
+  -- NOTE: Material capture happens in PRE events above, not here!
   reg:add(defines.events.on_player_mined_entity, function(e)
-    Change.capture_material_events(e, e.entity)
     log_change("REMOVE", e, e.entity, "reason=mined")
   end)
 
   reg:add(defines.events.on_robot_mined_entity, function(e)
-    Change.capture_material_events(e, e.entity)
     log_change("REMOVE", e, e.entity, "reason=mined")
   end)
 
@@ -253,7 +264,13 @@ end)
 
 
   -- Mark (planned changes)
+  -- WICHTIG: Bei Markierung zur Dekonstruktion erfassen wir bereits die Materialien,
+  -- da Roboter diese WÄHREND on_robot_pre_mined entfernen (zu spät!)
   reg:add(defines.events.on_marked_for_deconstruction, function(e)
+    -- Erfasse Materialien SOFORT bei Markierung, solange sie noch da sind
+    if e.entity and e.entity.valid then
+      Change.capture_material_events_at_mark(e, e.entity)
+    end
     log_change("MARK_DECON", e, e.entity)
   end)
 

@@ -1,11 +1,20 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
 -- Integration for Even Pickier Dollies mod
 -- Logs entity movements and rotations performed via the Pickier Dollies mod
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
 
 local M = require("config")
 local Change = require("change")
 local CircuitHelper = require("integrations.circuit_helper")
 
 local PickierDollies = {}
+
+PickierDollies.version = "0.2.0"
 
 -- Check if Even Pickier Dollies (EPD) is available
 function PickierDollies.is_available()

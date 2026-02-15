@@ -1,4 +1,14 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
+-- Central configuration and storage initialization for LogSim (constants, GUI IDs, defaults).
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
+
 local M = {}
+M.version = "0.2.0"
 
 -- GUI sizing: match the TX window sizing style
 M.GUI_BUFFER_WIDTH  = 900

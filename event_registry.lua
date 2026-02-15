@@ -1,4 +1,16 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
+-- Register for factorio events
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
+
 local Registry = {}
+
+Registry.version = "0.2.0"
+
 Registry.__index = Registry
 
 function Registry.new()

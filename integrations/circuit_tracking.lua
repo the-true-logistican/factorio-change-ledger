@@ -1,12 +1,21 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
 -- Optional Circuit Change Tracking
 -- Tracks pure circuit wire changes (without entity movement)
 -- This is disabled by default due to performance considerations
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
 
 local M = require("config")
 local Change = require("change")
 local CircuitHelper = require("integrations.circuit_helper")
 
 local CircuitTracking = {}
+
+CircuitTracking.version = "0.2.0"
 
 -- Enable/disable circuit change tracking
 -- Set this to true to enable tracking of pure wire changes

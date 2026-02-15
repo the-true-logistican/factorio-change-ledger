@@ -1,9 +1,9 @@
 {
   "name": "change_ledger",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "title": "Change Ledger",
-  "author": "Martin",
+  "author": "the-true-logistican",
   "factorio_version": "2.0",
-  "dependencies": ["base >= 2.0.0"],
-  "description": "Records all events during the conversion of a factory"
+  "dependencies": ["base >= 2.0"],
+  "description": "Tracks all changes in your factory for analysis and cost calculation"
 }

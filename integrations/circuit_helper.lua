@@ -1,7 +1,16 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
 -- Circuit Network Helper
 -- Provides utilities for tracking circuit wire connections
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
 
 local CircuitHelper = {}
+
+CircuitHelper.version = "0.2.0"
 
 -- Count red and green wire connections for an entity
 function CircuitHelper.count_wires(entity)

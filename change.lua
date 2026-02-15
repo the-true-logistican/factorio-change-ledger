@@ -1,3 +1,12 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
+-- Record the activities ahile modifying the factory
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
+
 local Config = require("config")
 
 local Change = {}
@@ -398,8 +407,8 @@ end
 -- ---------------- Material capture ----------------
 local function inv_contents(ent)
   -- nur Container für jetzt (logistic-container inklusive)
-  local ok, inv = pcall(ent.get_inventory, ent, defines.inventory.chest)
-  if not (ok and inv and inv.valid and #inv > 0) then return {} end
+  local inv = ent.get_inventory(defines.inventory.chest)
+  if not (inv and inv.valid and #inv > 0) then return {} end
   return inv.get_contents() or {}
 end
 
@@ -472,15 +481,87 @@ local function push_mat(base_ev, item, cnt, src)
   Change.push_event(Change.make_material_event(base_ev, item, cnt, src))
 end
 
-function Change.capture_material_events(e, ent)
+
+-- Helper function: Get all inventories of an entity (based on Big Brother mod)
+local function get_all_entity_inventories(ent)
+  if not (ent and ent.valid) then return {} end
+  
+  local inventories = {}
+  local seen_inventories = {}
+  
+  local inventory_types = {
+    {type = defines.inventory.chest, slot_name = "chest"},
+    {type = defines.inventory.furnace_source, slot_name = "input"},
+    {type = defines.inventory.furnace_result, slot_name = "output"},
+    {type = defines.inventory.furnace_modules, slot_name = "modules"},
+    {type = defines.inventory.assembling_machine_input, slot_name = "input"},
+    {type = defines.inventory.assembling_machine_output, slot_name = "output"},
+    {type = defines.inventory.assembling_machine_modules, slot_name = "modules"},
+    {type = defines.inventory.lab_input, slot_name = "input"},
+    {type = defines.inventory.lab_modules, slot_name = "modules"},
+    {type = defines.inventory.mining_drill_modules, slot_name = "modules"},
+    {type = defines.inventory.rocket_silo_input, slot_name = "input"},
+    {type = defines.inventory.rocket_silo_output, slot_name = "output"},
+    {type = defines.inventory.rocket_silo_modules, slot_name = "modules"},
+    {type = defines.inventory.beacon_modules, slot_name = "modules"},
+    {type = defines.inventory.fuel, slot_name = "fuel"},
+    {type = defines.inventory.burnt_result, slot_name = "burnt_result"},
+  }
+  
+  log("[Change Ledger DEBUG] get_all_entity_inventories für " .. tostring(ent.name))
+  log("[Change Ledger DEBUG]   Entity.valid=" .. tostring(ent.valid) .. ", type=" .. tostring(ent.type))
+  
+  for _, inv_data in pairs(inventory_types) do
+    log("[Change Ledger DEBUG]   Teste Inventory: " .. tostring(inv_data.slot_name) .. " (type=" .. tostring(inv_data.type) .. ")")
+    local inv = ent.get_inventory(inv_data.type)
+    
+    if not inv then
+      log("[Change Ledger DEBUG]     -> get_inventory gab nil zurück")
+    elseif not inv.valid then
+      log("[Change Ledger DEBUG]     -> Inventory ist invalid")
+    else
+      local inv_index = inv.index
+      log("[Change Ledger DEBUG]     -> GEFUNDEN! (index=" .. tostring(inv_index) .. ", #slots=" .. tostring(#inv) .. ")")
+      
+      if not seen_inventories[inv_index] then
+        seen_inventories[inv_index] = true
+        table.insert(inventories, {
+          inventory = inv,
+          type = inv_data.type,
+          slot_name = inv_data.slot_name
+        })
+      else
+        log("[Change Ledger DEBUG]       -> Aber Duplikat (index=" .. tostring(inv_index) .. ")")
+      end
+    end
+  end
+  
+  log("[Change Ledger DEBUG]   Insgesamt " .. tostring(#inventories) .. " Inventories")
+  return inventories
+end
+
+function Change.capture_material_events_at_mark(e, ent)
   ensure_defaults()
   if storage.cl.recording ~= true then return end
   if not (ent and ent.valid) then return end
-
-  -- Use REMOVE base event just as "context carrier" for MAT_TAKE
-  local base_ev = Change.make_entity_event("REMOVE", e, ent, "mat=probe")
-
-  -- (1) Belts / splitters: try a small set of lines safely (nice-to-have)
+  if not ent.unit_number then return end
+  
+  log("[Change Ledger DEBUG] capture_material_events_at_mark() für " .. tostring(ent.name) .. " unit=" .. tostring(ent.unit_number))
+  
+  storage.cl.marked_materials = storage.cl.marked_materials or {}
+  local unit_key = tostring(ent.unit_number)
+  local materials = {}
+  
+  local function collect_mat(item_name, item_count, item_quality, src)
+    if not item_name or item_count <= 0 then return end
+    local quality_str = (item_quality and item_quality ~= "normal") and ("@" .. item_quality) or ""
+    log("[Change Ledger DEBUG]   - Material: src=" .. tostring(src) .. ", item=" .. tostring(item_name) .. quality_str .. ", cnt=" .. tostring(item_count))
+    materials[#materials + 1] = { item = item_name .. quality_str, cnt = item_count, src = src }
+  end
+  
+  log("[Change Ledger DEBUG] Entity-Typ: " .. tostring(ent.type))
+  
+  -- (1) Belts
   if ent.get_transport_line then
     local t = ent.type
     local max_lines = (t == "splitter") and 4 or 2
@@ -488,76 +569,148 @@ function Change.capture_material_events(e, ent)
       for i = 1, max_lines do
         local ok, line = pcall(ent.get_transport_line, ent, i)
         if ok and line and line.valid and line.get_contents then
-          local contents = line.get_contents()
-          for _, rec in ipairs(contents_to_pairs(contents)) do
-            push_mat(base_ev, rec.item, rec.cnt, "belt_line_" .. i)
+          for _, rec in ipairs(contents_to_pairs(line.get_contents())) do
+            collect_mat(rec.item, rec.cnt, nil, "belt_line_" .. i)
           end
         end
       end
     end
   end
 
-  -- (2) Inserter held stack (robust: ONLY for inserters + pcall)
+  -- (2) Inserter
   if ent.type == "inserter" then
     local ok, hs = pcall(function() return ent.held_stack end)
     if ok and hs and hs.valid_for_read then
-      push_mat(base_ev, hs.name, hs.count, "inserter_held")
+      collect_mat(hs.name, hs.count, hs.quality and hs.quality.name, "inserter_held")
     end
   end
 
-  -- (3) Container contents (wooden chest, steel chest, logistic chests)
-  if ent.type == "container" or ent.type == "logistic-container" then
-    -- Primary: chest inventory
-    local ok_ch, inv_ch = pcall(ent.get_inventory, ent, defines.inventory.chest)
-    local logged_any = false
-
-    if ok_ch and inv_ch and inv_ch.valid and #inv_ch > 0 then
-      local c = inv_ch.get_contents()
-      for _, rec in ipairs(contents_to_pairs(c)) do
-        push_mat(base_ev, rec.item, rec.cnt, "chest")
-        logged_any = true
-      end
-    end
-
-    -- Fallback: some containers expose contents under other inventory ids (mods / edge cases)
-    if not logged_any then
-      local seen = {}
-      for _, inv_id in pairs(defines.inventory) do
-        if type(inv_id) == "number" and not seen[inv_id] then
-          seen[inv_id] = true
-          local ok, inv = pcall(ent.get_inventory, ent, inv_id)
-          if ok and inv and inv.valid and #inv > 0 then
-            local c = inv.get_contents()
-            for _, rec in ipairs(contents_to_pairs(c)) do
-              push_mat(base_ev, rec.item, rec.cnt, "inv_" .. tostring(inv_id))
-              logged_any = true
-            end
+  -- (3) Alle Inventories
+  local inventories = get_all_entity_inventories(ent)
+  for _, inv_data in pairs(inventories) do
+    if inv_data.inventory and inv_data.inventory.valid then
+      local ok_contents, contents = pcall(function() return inv_data.inventory.get_contents() end)
+      if ok_contents and contents then
+        local count = 0
+        for _ in pairs(contents) do count = count + 1 end
+        log("[Change Ledger DEBUG]     Slot '" .. inv_data.slot_name .. "': " .. tostring(count) .. " Items")
+        for _, item_data in pairs(contents) do
+          if type(item_data) == "table" and item_data.name then
+            collect_mat(item_data.name, item_data.count, item_data.quality or "normal", inv_data.slot_name)
           end
         end
       end
     end
   end
+  
+  storage.cl.marked_materials[unit_key] = {
+    tick = game.tick,
+    materials = materials,
+    entity_name = ent.name,
+    position = ent.position
+  }
+  
+  log("[Change Ledger DEBUG] Fertig: " .. tostring(#materials) .. " Materialien gespeichert")
+  if #materials == 0 then
+    log("[Change Ledger DEBUG] WARNUNG: Keine Materialien!")
+  end
+end
 
-  -- (4) Output inventory (some entities expose this)
-  if ent.get_output_inventory then
-    local ok, outinv = pcall(ent.get_output_inventory, ent)
-    if ok and outinv and outinv.valid and #outinv > 0 then
-      local c = outinv.get_contents()
-      for _, rec in ipairs(contents_to_pairs(c)) do
-        push_mat(base_ev, rec.item, rec.cnt, "output")
+function Change.capture_material_events(e, ent)
+  ensure_defaults()
+  if storage.cl.recording ~= true then return end
+  if not (ent and ent.valid) then return end
+
+  log("[Change Ledger DEBUG] capture_material_events() aufgerufen für " .. tostring(ent.name) .. " unit=" .. tostring(ent.unit_number))
+
+  local unit_key = tostring(ent.unit_number or "")
+  local tick = game.tick or 0
+  
+  -- Use REMOVE base event just as "context carrier" for MAT_TAKE
+  local base_ev = Change.make_entity_event("REMOVE", e, ent, "mat=probe")
+  
+  -- DELTA-TRACKING: Speichere "vorher" Snapshot beim ersten Roboter-Besuch
+  storage.cl.robot_snapshots = storage.cl.robot_snapshots or {}
+  
+  -- Erfasse aktuellen Inventar-Zustand
+  local current_snapshot = {}
+  local inventories = get_all_entity_inventories(ent)
+  
+  for _, inv_data in pairs(inventories) do
+    if inv_data.inventory and inv_data.inventory.valid then
+      local contents = inv_data.inventory.get_contents()
+      
+      if contents then
+        for _, item_data in pairs(contents) do
+          if type(item_data) == "table" and item_data.name then
+            local quality = item_data.quality or "normal"
+            local quality_str = (quality ~= "normal") and ("@" .. quality) or ""
+            local item_key = inv_data.slot_name .. "::" .. item_data.name .. quality_str
+            
+            current_snapshot[item_key] = item_data.count
+          end
+        end
       end
     end
   end
-
-  -- (5) Module inventory (explicit)
-  if ent.get_module_inventory then
-    local ok, minv = pcall(ent.get_module_inventory, ent)
-    if ok and minv and minv.valid and #minv > 0 then
-      local c = minv.get_contents()
-      for _, rec in ipairs(contents_to_pairs(c)) do
-        push_mat(base_ev, rec.item, rec.cnt, "modules")
+  
+  -- Prüfe ob wir bereits einen Snapshot haben
+  local previous_snapshot = storage.cl.robot_snapshots[unit_key]
+  
+  if not previous_snapshot then
+    -- ERSTER Roboter-Besuch: Speichere Snapshot, logge aber NICHTS
+    log("[Change Ledger DEBUG] Erster Roboter-Besuch - speichere Snapshot für Zukunft")
+    storage.cl.robot_snapshots[unit_key] = {
+      tick = tick,
+      snapshot = current_snapshot
+    }
+    
+    -- Bereinige alte Snapshots (älter als 600 Ticks)
+    for key, data in pairs(storage.cl.robot_snapshots) do
+      if tick - data.tick > 600 then
+        storage.cl.robot_snapshots[key] = nil
       end
     end
+    
+    return -- Beim ersten Besuch NICHTS loggen
+  end
+  
+  -- NACHFOLGENDE Roboter-Besuche: Berechne Delta und logge NUR Entnahmen
+  log("[Change Ledger DEBUG] Nachfolgender Roboter-Besuch - berechne Delta")
+  
+  local prev = previous_snapshot.snapshot
+  local deltas = {}
+  
+  -- Finde was entnommen wurde (vorher > jetzt)
+  for item_key, prev_count in pairs(prev) do
+    local curr_count = current_snapshot[item_key] or 0
+    local delta = prev_count - curr_count
+    
+    if delta > 0 then
+      -- Parse item_key zurück: "slot_name::item_name@quality"
+      local slot_name, item_name = item_key:match("([^:]+)::(.+)")
+      log("[Change Ledger DEBUG]   Delta gefunden: " .. item_key .. " = -" .. tostring(delta))
+      
+      push_mat(base_ev, item_name, delta, slot_name)
+    end
+  end
+  
+  -- Update Snapshot für nächsten Roboter
+  storage.cl.robot_snapshots[unit_key] = {
+    tick = tick,
+    snapshot = current_snapshot
+  }
+  
+  -- Wenn Snapshot leer ist, aufräumen (alles wurde entnommen)
+  local is_empty = true
+  for _ in pairs(current_snapshot) do
+    is_empty = false
+    break
+  end
+  
+  if is_empty then
+    log("[Change Ledger DEBUG] Inventar komplett leer - lösche Snapshot")
+    storage.cl.robot_snapshots[unit_key] = nil
   end
 end
 

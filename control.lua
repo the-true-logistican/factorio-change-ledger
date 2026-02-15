@@ -1,3 +1,12 @@
+-- =========================================
+-- Change Ledger (Factorio 2.0) 
+-- Main runtime controller: wires events, ticks, hotkeys and GUI actions together.
+--
+-- version 0.1.0 first try
+-- version 0.2.0 first opertional Version
+--
+-- =========================================
+
 local M  = require("config")
 local UI = require("ui")
 local Change = require("change")
