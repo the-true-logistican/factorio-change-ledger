@@ -11,6 +11,7 @@ local M  = require("config")
 local UI = require("ui")
 local Change = require("change")
 local IntegrationInfo = require("integration_info")
+local MaterialTracking = require("integrations.material_tracking")
 
 storage = storage or script.storage
 
@@ -28,6 +29,11 @@ local function bind_integrations()
   -- Vanilla is always available.
   if Vanilla and Vanilla.is_available() then
     Vanilla.register(reg)
+  end
+
+  if MaterialTracking and MaterialTracking.is_available() and MaterialTracking.is_enabled() then
+    log("[MaterialTracking] register() wird aufgerufen")
+    MaterialTracking.register(reg)
   end
 
   -- Pickier Dollies integration (if mod is loaded)
@@ -64,6 +70,7 @@ script.on_init(function()
   storage = storage or script.storage
   M.ensure_storage_defaults()
   rebuild_all_players()
+  storage.cl.material_tracking_active = storage.cl.material_tracking_active or false
   bind_integrations()  -- WICHTIG: Hier registrieren!
   
   -- Nachricht an alle Spieler
@@ -83,6 +90,7 @@ end)
 
 script.on_load(function()
   log("[Change Ledger] on_load() aufgerufen")
+  storage.cl.material_tracking_active = storage.cl.material_tracking_active or false
   bind_integrations()  -- WICHTIG: Auch bei on_load registrieren!
   log("[Change Ledger] on_load() abgeschlossen")
 end)
@@ -345,6 +353,49 @@ script.on_event(defines.events.on_gui_checked_state_changed, function(e)
     end
   end
 end)
+
+-- Regelmäßiges Aufräumen (alle M.GUI_REFRESH_TICKS Ticks)
+script.on_nth_tick(M.GUI_REFRESH_TICKS, function(e)
+  -- Blueprint-Paste Timeouts prüfen
+  if storage.cl and storage.cl.active_blueprint_pastes then
+    for player_index, paste_data in pairs(storage.cl.active_blueprint_pastes) do
+      if e.tick > paste_data.timeout then
+        -- Blueprint-Paste ist abgeschlossen
+        local player = game.get_player(tonumber(player_index))
+        if player then
+          Change.push_event({
+            session = tonumber(storage.cl.chg_session_id) or 0,
+            tick = e.tick,
+            action = "BLUEPRINT_PASTE_END",
+            actor_type = "PLAYER",
+            actor_name = player.name,
+            actor_index = player.index,
+            surface = player.surface.name,
+            force = player.force.name,
+            entity_name = "-",
+            unit_number = "-",
+            position = nil,
+            dir_before = nil,
+            dir_after = nil,
+            extra = "group_id=" .. paste_data.group_id .. ",entities_built=" .. tostring(paste_data.entity_count or 0)
+          })
+        end
+        
+        storage.cl.active_blueprint_pastes[player_index] = nil
+      end
+    end
+  end
+  
+  -- Alte Remove-Einträge aufräumen (für Upgrade-Erkennung)
+  if storage.cl and storage.cl.recent_removes then
+    for key, data in pairs(storage.cl.recent_removes) do
+      if e.tick > data.expires then
+        storage.cl.recent_removes[key] = nil
+      end
+    end
+  end
+end)
+
 
 -- Chat command to show integration info
 commands.add_command("cl-info", "Zeigt alle aktiven Change Ledger Integrationen und erkannte Manipulationen", function(event)

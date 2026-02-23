@@ -4,13 +4,15 @@
 --
 -- version 0.1.0 first try
 -- version 0.2.0 first opertional Version
---
+-- version 0.3.0 Material-Tracking Integration
+--          Deaktiviert Roboter-Material-Events wenn Material-Tracking aktiv
 -- =========================================
 
 local Config = require("config")
+local CircuitHelper = require("integrations.circuit_helper")
 
 local Change = {}
-Change.version = "0.2.0"
+Change.version = "0.3.0"
 
 local function ensure_defaults()
   Config.ensure_storage_defaults()
@@ -208,7 +210,6 @@ end
 
 -- Render one viewer line.
 -- `filters` is an optional table: {player=bool, robot=bool, ghost=bool, other=bool}
--- NOTE: Ghost lines are currently always suppressed (see filter rules below).
 function Change.get_line(i, _surface, filters)
   if i == 1 then return "# CHG" end
   if i == 2 then return "# id;tick;sess;act;actor;entity;unit;pos;extra" end
@@ -352,18 +353,34 @@ function Change.make_entity_event(action, e, ent, extra)
   local position    = safe_pos(ent)
   local extra2 = extra or ""
 
-  -- Ghost handling: log intended entity name
+  -- Ghost handling (unverändert)
+  local is_ghost = false
   if ent and ent.valid and (ent.name == "entity-ghost" or ent.type == "entity-ghost") then
+    is_ghost = true
     local gname = ent.ghost_name
     entity_name = (gname and gname ~= "") and gname or "?"
     if extra2 ~= "" then extra2 = extra2 .. "," end
     extra2 = extra2 .. "ghost=1"
   end
 
+  -- NEU: Circuit-Info automatisch anhängen, wenn vorhanden
+  -- Das CircuitHelper Modul kümmert sich darum, nur relevante Infos zu liefern
+  extra2 = CircuitHelper.append_wire_info(extra2, ent)
+
+  -- Bestimme den korrekten Action-Typ
+  local final_action = action
+  if is_ghost then
+    if action == "BUILD" then
+      final_action = "GHOST_PLACE"
+    elseif action == "REMOVE" then
+      final_action = "GHOST_REMOVE"
+    end
+  end
+
   return {
     session = tonumber(cl.chg_session_id) or 0,
     tick = game and game.tick or 0,
-    action = action,
+    action = final_action,
     actor_type = actor_type,
     actor_name = actor_name,
     actor_index = actor_index,
@@ -377,6 +394,8 @@ function Change.make_entity_event(action, e, ent, extra)
     extra = extra2
   }
 end
+
+
 
 function Change.make_material_event(base_ev, item_name, count, src, extra)
   local extra2 = extra or ""
@@ -508,21 +527,11 @@ local function get_all_entity_inventories(ent)
     {type = defines.inventory.burnt_result, slot_name = "burnt_result"},
   }
   
-  log("[Change Ledger DEBUG] get_all_entity_inventories für " .. tostring(ent.name))
-  log("[Change Ledger DEBUG]   Entity.valid=" .. tostring(ent.valid) .. ", type=" .. tostring(ent.type))
-  
   for _, inv_data in pairs(inventory_types) do
-    log("[Change Ledger DEBUG]   Teste Inventory: " .. tostring(inv_data.slot_name) .. " (type=" .. tostring(inv_data.type) .. ")")
     local inv = ent.get_inventory(inv_data.type)
     
-    if not inv then
-      log("[Change Ledger DEBUG]     -> get_inventory gab nil zurück")
-    elseif not inv.valid then
-      log("[Change Ledger DEBUG]     -> Inventory ist invalid")
-    else
+    if inv and inv.valid then
       local inv_index = inv.index
-      log("[Change Ledger DEBUG]     -> GEFUNDEN! (index=" .. tostring(inv_index) .. ", #slots=" .. tostring(#inv) .. ")")
-      
       if not seen_inventories[inv_index] then
         seen_inventories[inv_index] = true
         table.insert(inventories, {
@@ -530,13 +539,10 @@ local function get_all_entity_inventories(ent)
           type = inv_data.type,
           slot_name = inv_data.slot_name
         })
-      else
-        log("[Change Ledger DEBUG]       -> Aber Duplikat (index=" .. tostring(inv_index) .. ")")
       end
     end
   end
   
-  log("[Change Ledger DEBUG]   Insgesamt " .. tostring(#inventories) .. " Inventories")
   return inventories
 end
 
@@ -546,8 +552,6 @@ function Change.capture_material_events_at_mark(e, ent)
   if not (ent and ent.valid) then return end
   if not ent.unit_number then return end
   
-  log("[Change Ledger DEBUG] capture_material_events_at_mark() für " .. tostring(ent.name) .. " unit=" .. tostring(ent.unit_number))
-  
   storage.cl.marked_materials = storage.cl.marked_materials or {}
   local unit_key = tostring(ent.unit_number)
   local materials = {}
@@ -555,11 +559,8 @@ function Change.capture_material_events_at_mark(e, ent)
   local function collect_mat(item_name, item_count, item_quality, src)
     if not item_name or item_count <= 0 then return end
     local quality_str = (item_quality and item_quality ~= "normal") and ("@" .. item_quality) or ""
-    log("[Change Ledger DEBUG]   - Material: src=" .. tostring(src) .. ", item=" .. tostring(item_name) .. quality_str .. ", cnt=" .. tostring(item_count))
     materials[#materials + 1] = { item = item_name .. quality_str, cnt = item_count, src = src }
   end
-  
-  log("[Change Ledger DEBUG] Entity-Typ: " .. tostring(ent.type))
   
   -- (1) Belts
   if ent.get_transport_line then
@@ -591,9 +592,6 @@ function Change.capture_material_events_at_mark(e, ent)
     if inv_data.inventory and inv_data.inventory.valid then
       local ok_contents, contents = pcall(function() return inv_data.inventory.get_contents() end)
       if ok_contents and contents then
-        local count = 0
-        for _ in pairs(contents) do count = count + 1 end
-        log("[Change Ledger DEBUG]     Slot '" .. inv_data.slot_name .. "': " .. tostring(count) .. " Items")
         for _, item_data in pairs(contents) do
           if type(item_data) == "table" and item_data.name then
             collect_mat(item_data.name, item_data.count, item_data.quality or "normal", inv_data.slot_name)
@@ -609,19 +607,17 @@ function Change.capture_material_events_at_mark(e, ent)
     entity_name = ent.name,
     position = ent.position
   }
-  
-  log("[Change Ledger DEBUG] Fertig: " .. tostring(#materials) .. " Materialien gespeichert")
-  if #materials == 0 then
-    log("[Change Ledger DEBUG] WARNUNG: Keine Materialien!")
-  end
 end
 
 function Change.capture_material_events(e, ent)
   ensure_defaults()
   if storage.cl.recording ~= true then return end
   if not (ent and ent.valid) then return end
-
-  log("[Change Ledger DEBUG] capture_material_events() aufgerufen für " .. tostring(ent.name) .. " unit=" .. tostring(ent.unit_number))
+  
+  -- NEU: Wenn Material-Tracking aktiv ist, überlassen wir Roboter-Events dem Modul
+  if e and e.robot and storage.cl.material_tracking_active then
+    return  -- Stille Rückkehr, keine Events
+  end
 
   local unit_key = tostring(ent.unit_number or "")
   local tick = game.tick or 0
@@ -658,8 +654,7 @@ function Change.capture_material_events(e, ent)
   local previous_snapshot = storage.cl.robot_snapshots[unit_key]
   
   if not previous_snapshot then
-    -- ERSTER Roboter-Besuch: Speichere Snapshot, logge aber NICHTS
-    log("[Change Ledger DEBUG] Erster Roboter-Besuch - speichere Snapshot für Zukunft")
+    -- ERSTER Roboter-Besuch: Speichere Snapshot
     storage.cl.robot_snapshots[unit_key] = {
       tick = tick,
       snapshot = current_snapshot
@@ -672,12 +667,10 @@ function Change.capture_material_events(e, ent)
       end
     end
     
-    return -- Beim ersten Besuch NICHTS loggen
+    return -- Beim ersten Besuch nichts loggen
   end
   
   -- NACHFOLGENDE Roboter-Besuche: Berechne Delta und logge NUR Entnahmen
-  log("[Change Ledger DEBUG] Nachfolgender Roboter-Besuch - berechne Delta")
-  
   local prev = previous_snapshot.snapshot
   local deltas = {}
   
@@ -689,7 +682,6 @@ function Change.capture_material_events(e, ent)
     if delta > 0 then
       -- Parse item_key zurück: "slot_name::item_name@quality"
       local slot_name, item_name = item_key:match("([^:]+)::(.+)")
-      log("[Change Ledger DEBUG]   Delta gefunden: " .. item_key .. " = -" .. tostring(delta))
       
       push_mat(base_ev, item_name, delta, slot_name)
     end
@@ -709,7 +701,6 @@ function Change.capture_material_events(e, ent)
   end
   
   if is_empty then
-    log("[Change Ledger DEBUG] Inventar komplett leer - lösche Snapshot")
     storage.cl.robot_snapshots[unit_key] = nil
   end
 end

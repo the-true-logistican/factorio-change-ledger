@@ -10,6 +10,8 @@
 local M = {}
 M.version = "0.2.0"
 
+M.GUI_REFRESH_TICKS = 20
+
 -- GUI sizing: match the TX window sizing style
 M.GUI_BUFFER_WIDTH  = 900
 M.GUI_BUFFER_HEIGHT = 500
@@ -114,15 +116,11 @@ for _, act in ipairs(M.SCRIPT_ACTION_LIST) do
   M.SCRIPT_ACTION_SET[act] = true
 end
 
-
 function M.ensure_storage_defaults()
-  -- Factorio 2.x persistent state
   storage.cl = storage.cl or {}
   local cl = storage.cl
 
   if cl.recording == nil then cl.recording = false end
-
-  -- Recording session id (increments on REC_START)
   cl.chg_session_id = tonumber(cl.chg_session_id) or 0
 
   cl.chg_events = cl.chg_events or {}
@@ -133,6 +131,11 @@ function M.ensure_storage_defaults()
   cl.chg_write = tonumber(cl.chg_write) or 1
 
   cl.viewer = cl.viewer or {}
+  
+  -- NEU: Storage für die neuen Features
+  cl.active_blueprint_pastes = cl.active_blueprint_pastes or {}
+  cl.recent_removes = cl.recent_removes or {}  -- Für Upgrade-Erkennung
+  cl.cut_paste = cl.cut_paste or {}            -- Für Cut/Paste
 end
 
 return M
